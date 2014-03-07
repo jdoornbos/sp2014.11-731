@@ -4,24 +4,48 @@ import argparse
 import json
 import os, sys, math
 
-def extract_features(hyp, ref):
+def extract_features(hyp, ref, alpha):
   hwords = hyp.lower().split()
   rwords = ref.lower().split()
   refset = set(rwords)
-  precision = sum(1.0 for word in hwords if word in refset) / len(hwords)
-  return {'prec':precision}
+  hypset = set(hwords)
+  p_count = sum(0.5 for word in hwords if word in refset)
+  r_count = sum(0.5 for word in rwords if word in hypset)
+  htruncs = []
+  rtruncs = []
+  for word in hwords:
+    htruncs.append(word[:4])
+  for word in rwords:
+    rtruncs.append(word[:4])
+  rtruncSet = set(rtruncs)
+  htruncSet = set(htruncs)
+  pt_count = sum(0.5 for word in htruncs if word in rtruncSet)
+  rt_count = sum(0.5 for word in rtruncs if word in htruncSet)
+  p = (p_count + pt_count) / len(hwords)
+  r = (r_count + rt_count) / len(rwords)
+
+  if (p + r) == 0:
+    harm_mean = 0
+  else:
+    harm_mean = p*r / ((1-alpha)*p + (alpha)*r)
+
+  return {'Meteor': harm_mean}
 
 argparser = argparse.ArgumentParser(prog='extract')
 argparser.add_argument('-x', '--pairs', dest='pairs', default='data/en-cs.pairs', help='Reference-Hypothesis pairs')
+argparser.add_argument('-a', '--alpha', dest='alpha', default='0.5', help='Weight of Precision')
 
 args = argparser.parse_args()
 
 lc = 0
 sys.stderr.write('Extracting features for (ref,hyp) pairs from %s.\n' % args.pairs)
 # loop over all (ref,hyp) pairs in the input file and extract evaluation features
+
 for ref_hyp in open(args.pairs):
   lc += 1
   ref, hyp = ref_hyp.rstrip().split(' ||| ')
-  fmap = extract_features(hyp, ref)
+
+  fmap = extract_features(hyp, ref, float(args.alpha))
   print json.dumps(fmap)   # print evaluation feature map
+
 
