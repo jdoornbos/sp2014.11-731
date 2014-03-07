@@ -14,9 +14,9 @@ def extract_features(hyp, ref, alpha):
   htruncs = []
   rtruncs = []
   for word in hwords:
-    htruncs.append(word[:4])
+    htruncs.append(word[:3])
   for word in rwords:
-    rtruncs.append(word[:4])
+    rtruncs.append(word[:3])
   rtruncSet = set(rtruncs)
   htruncSet = set(htruncs)
   pt_count = sum(0.5 for word in htruncs if word in rtruncSet)
