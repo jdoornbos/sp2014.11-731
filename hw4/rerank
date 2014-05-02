@@ -1,6 +1,90 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import optparse
-import sys
+import sys    
+    
+import csv
+import random
+import re
+
+from sklearn import svm
+from sklearn import linear_model
+
+def create_training_instances():
+  meteor_scores = []
+  with open(r'data/meteor-scores.txt','r') as infile:
+    for row in infile.readlines():
+      meteor_scores.append(row)
+      
+  feat_scores = []
+  with open(r'data/test.100best') as infile:
+    for row in infile.readlines():
+      scores = []
+      for feat in row.split(' ||| ')[2].split(' '):
+        scores.append(float(feat.split('=')[1]))
+      line = row.strip()
+      hyptext = line.split('|||')[1]
+      words = hyptext.split()
+      feats = {}
+      feats["sentLen"] = len(words)
+      #find words with Cyrillic letters and count them as untranslated/untransliterated
+      untrans = 0
+      for word in words:
+        if re.search("[^\w\.\,'\"\?\!;()%\-\*:/$&ščťáéíóúüöæåøхapѕ[\]\+\#]",word,re.UNICODE):
+          untrans += 1
+      feats["untrans"] = untrans
+      scores.append(feats["sentLen"])
+      scores.append(feats["untrans"])
+      feat_scores.append(scores)
+  
+#   totLen = 0
+#   for i in range(0,len(feat_scores)):
+#     if i%100 == 99:
+#       if i != 0:
+#         avglen = float(totLen)/100
+#         for j in range(i-99,i+1):
+#           feat_scores[j].append(abs(float(feat_scores[j][3])/avglen - 1)*0)
+#      
+#       totLen = 0
+#      
+#     totLen += feat_scores[i][3]
+    
+  n_sents = 400
+  n_hyps = 100
+  n = 4000
+  
+  instances = []
+  targets = []
+  for sent in xrange(0, n_sents):
+    for i in xrange(0, n):
+      hyp1 = random.randint(0,n_hyps-1)
+      hyp2 = random.randint(0,n_hyps-1)
+      while hyp2 == hyp1:
+        hyp2 = random.randint(0,n_hyps-1)
+      h1 = sent * n_hyps + hyp1
+      h2 = sent * n_hyps + hyp2
+      f1 = feat_scores[h1]
+      f2 = feat_scores[h2]
+      feat_diff = [j - i for i, j in zip(f1, f2)]
+      label = -1
+      if meteor_scores[h1] > meteor_scores[h2]:
+        label = 0
+      else:
+        label = 1
+      targets.append(label)
+      instances.append(feat_diff)
+      targets.append(1-label)
+      instances.append([f * -1 for f in feat_diff])
+
+  return instances,targets
+
+def train_classifier(data):
+  clf = linear_model.LogisticRegression()
+  clf.fit(data[0],data[1])
+  return clf.coef_
+    
+          
 
 optparser = optparse.OptionParser()
 optparser.add_option("-k", "--kbest-list", dest="input", default="data/test.100best", help="100-best translation lists")
@@ -12,20 +96,63 @@ weights = {'p(e)'       : float(opts.lm) ,
            'p(e|f)'     : float(opts.tm1),
            'p_lex(f|e)' : float(opts.tm2)}
 
+train_data = create_training_instances()
+weights2 = train_classifier(train_data)
+
+weights = {'p(e)'       : weights2[0][0],
+           'p(e|f)'     : weights2[0][1],
+           'p_lex(f|e)' : weights2[0][2],
+           'sentLen'    : weights2[0][3],
+           'untrans'    : weights2[0][4]}
+           #'compLen'    : weights2[0][5]}
+
+for w in weights:
+#   w = w * -1
+  sys.stderr.write(w+': '+str(weights[w])+'\n')
+
 all_hyps = [pair.split(' ||| ') for pair in open(opts.input)]
 num_sents = len(all_hyps) / 100
+
+# complen = []
+# totLen = 0
+# for i in xrange(0, num_sents*100):
+#   if i%100 == 99:
+#     if i != 0:
+#       avglen = float(totLen)/100.0
+#       for j in range(i-99,i+1):
+#         complen.append(abs(float(len(all_hyps[j][1].split()))/avglen - 1))
+#   
+#     totLen = 0
+#   
+#   totLen += len(all_hyps[i][1].split())
+
+
 for s in xrange(0, num_sents):
-  hyps_for_one_sent = all_hyps[s * 100:s * 100 + 100]
   (best_score, best) = (-1e300, '')
-  for (num, hyp, feats) in hyps_for_one_sent:
+  for h in xrange(0,100):
+    hyp = all_hyps[s * 100 + h][1]
+    feats = all_hyps[s * 100 + h][2]
     score = 0.0
     for feat in feats.split(' '):
       (k, v) = feat.split('=')
       score += weights[k] * float(v)
+    words = hyp.split()
+    feats = {}
+    feats["sentLen"] = len(words)
+    #find words with Cyrillic letters and count them as untranslated/untransliterated
+    untrans = 0
+    for word in words:
+      if re.search("[^\w\.\,'\"\?\!;()%\-\*:/$&ščťáéíóúüöæåøхapѕ[\]\+\#]",word,re.UNICODE):
+        untrans += 1
+    feats["untrans"] = untrans
+    score += weights["sentLen"] * feats["sentLen"]
+    score += weights["untrans"] * feats["untrans"]
+#     score += weights["compLen"] * complen[s * 100 + h]*0
     if score > best_score:
       (best_score, best) = (score, hyp)
   try: 
     sys.stdout.write("%s\n" % best)
   except (Exception):
     sys.exit(1)
+
 
